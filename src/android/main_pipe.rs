@@ -10,7 +10,7 @@ use jni::{
   JNIEnv,
 };
 use once_cell::sync::Lazy;
-use std::{os::unix::prelude::*, str::FromStr, sync::atomic::Ordering};
+use std::os::unix::prelude::*;
 
 use super::{find_class, EvalCallback, EVAL_CALLBACKS, EVAL_ID_GENERATOR, PACKAGE};
 
