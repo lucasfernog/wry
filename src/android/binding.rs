@@ -32,6 +32,8 @@ macro_rules! android_binding {
   ($domain:ident, $package:ident, $wry:path) => {{
     use $wry::{android_setup as _, prelude::*};
 
+    android_fn!($domain, $package, WryActivity, onActivityDestroy, [JObject]);
+
     android_fn!(
       $domain,
       $package,
@@ -256,6 +258,11 @@ fn handle_request(
   }
 
   Ok(*JObject::null())
+}
+
+#[allow(non_snake_case)]
+pub unsafe fn onActivityDestroy(_: JNIEnv, _: JClass, _: JObject) {
+  super::MainPipe::send(super::WebViewMessage::OnDestroy);
 }
 
 #[allow(non_snake_case)]
