@@ -27,15 +27,17 @@ use std::{
   collections::HashMap,
   os::fd::{AsFd as _, AsRawFd as _},
   sync::{mpsc::channel, Mutex},
+  time::Duration,
 };
 
 pub(crate) mod binding;
 mod main_pipe;
-use main_pipe::{CreateWebViewAttributes, MainPipe, WebViewMessage, MAIN_PIPE};
+use main_pipe::{CreateWebViewAttributes, MainPipe, MainPipeState, WebViewMessage, MAIN_PIPE};
 
 use crate::util::Counter;
 
 static COUNTER: Counter = Counter::new();
+const MAIN_PIPE_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct Context<'a, 'b> {
   pub env: &'a mut JNIEnv<'b>,
@@ -133,8 +135,11 @@ pub unsafe fn android_setup(
       let size = std::mem::size_of::<bool>();
       let mut wake = false;
       if libc::read(fd.as_raw_fd(), &mut wake as *mut _ as *mut _, size) == size as libc::ssize_t {
-        main_pipe.recv().is_ok()
+        let res = main_pipe.recv();
+        // unregister itself on errors or destroy event
+        matches!(res, Ok(MainPipeState::Alive))
       } else {
+        // unregister itself
         false
       }
     })
@@ -300,7 +305,7 @@ impl InnerWebView {
               });
 
             (custom_protocol.1)(webview_id, request, RequestAsyncResponder { responder });
-            return Some(rx.recv().unwrap());
+            return Some(rx.recv_timeout(MAIN_PIPE_TIMEOUT).unwrap());
           }
           None
         },
@@ -337,7 +342,7 @@ impl InnerWebView {
   pub fn url(&self) -> crate::Result<String> {
     let (tx, rx) = bounded(1);
     MainPipe::send(WebViewMessage::GetUrl(tx));
-    rx.recv().map_err(Into::into)
+    rx.recv_timeout(MAIN_PIPE_TIMEOUT).map_err(Into::into)
   }
 
   pub fn eval(&self, js: &str, callback: Option<impl Fn(String) + Send + 'static>) -> Result<()> {
@@ -391,7 +396,7 @@ impl InnerWebView {
   pub fn cookies_for_url(&self, url: &str) -> Result<Vec<cookie::Cookie<'static>>> {
     let (tx, rx) = bounded(1);
     MainPipe::send(WebViewMessage::GetCookies(tx, url.to_string()));
-    rx.recv().map_err(Into::into)
+    rx.recv_timeout(MAIN_PIPE_TIMEOUT).map_err(Into::into)
   }
 
   pub fn cookies(&self) -> Result<Vec<cookie::Cookie<'static>>> {
@@ -440,7 +445,7 @@ impl JniHandle {
 pub fn platform_webview_version() -> Result<String> {
   let (tx, rx) = bounded(1);
   MainPipe::send(WebViewMessage::GetWebViewVersion(tx));
-  rx.recv().unwrap()
+  rx.recv_timeout(MAIN_PIPE_TIMEOUT).unwrap()
 }
 
 fn with_html_head<F: FnOnce(&NodeRef)>(document: &mut NodeRef, f: F) {
